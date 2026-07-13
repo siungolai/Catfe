@@ -1,0 +1,31 @@
+{
+  "name": "catfe",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "猫咪咖啡馆 - H5 像素风模拟经营游戏",
+  "main": "index.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/siungolai/Catfe.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/siungolai/Catfe/issues"
+  },
+  "homepage": "https://github.com/siungolai/Catfe#readme",
+  "dependencies": {
+    "phaser": "^3.80.1"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "vite": "^8.1.4"
+  }
+}
