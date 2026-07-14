@@ -12,6 +12,8 @@ import { CustomerManager } from '../systems/CustomerManager';
 import type { CustomerSprite } from '../systems/CustomerManager';
 import { CatManager } from '../systems/CatManager';
 import { OrderManager } from '../systems/OrderManager';
+import { StarDisplay } from '../components/StarDisplay';
+import { calcQuality, checkPerfectStreak, starsText } from '../systems/QualityRating';
 import { DEFAULT_RECIPES } from '../data/recipes';
 import type { Order } from '../data/orders';
 
@@ -23,6 +25,7 @@ export class GameScene extends Phaser.Scene {
   private catManager!: CatManager;
   private catPanel!: CatPanel;
   private schedulePanel!: SchedulePanel;
+  private starDisplay!: StarDisplay;
   private gm!: GameManager;
   private elapsed = 0;
   private energyAccum = 0;
@@ -39,6 +42,9 @@ export class GameScene extends Phaser.Scene {
 
     // 场景绘制
     new CafeRenderer(this).draw();
+
+    // 星级动画
+    this.starDisplay = new StarDisplay(this);
 
     // 猫咪管理器
     this.catManager = new CatManager(this, this.gm);
@@ -99,11 +105,11 @@ export class GameScene extends Phaser.Scene {
     // 顾客更新（生成 + 耐心）
     this.customerManager.update(dt, this.elapsed);
 
-    // 吧台加速
+    // 吧台加速（受完美状态 skillBoost 加成）
     let speedBoost = 1;
     for (const cat of this.gm.state.cats.filter(c => c.area === 'bar')) {
       for (const sk of cat.skills) {
-        if (sk.area === 'bar' && sk.level > 0) speedBoost -= sk.effectValue;
+        if (sk.area === 'bar' && sk.level > 0) speedBoost -= sk.effectValue * this.gm.skillBoost;
       }
     }
 
@@ -125,13 +131,16 @@ export class GameScene extends Phaser.Scene {
         } else if (cat.area === 'rest') {
           let recover = 3;
           for (const sk of cat.skills) {
-            if (sk.area === 'rest' && sk.level > 0) recover += sk.effectValue * 10;
+            if (sk.area === 'rest' && sk.level > 0) recover += sk.effectValue * 10 * this.gm.skillBoost;
           }
           cat.energy = Math.min(100, cat.energy + recover);
         }
       }
       this.catManager.updatePositions();
     }
+
+    // 完美状态倒计时
+    this.gm.updatePerfect(dt);
 
     // UI 刷新
     this.orderQueue.update(this.orderManager.orders, this.elapsed);
@@ -236,7 +245,7 @@ export class GameScene extends Phaser.Scene {
             cs.sprite.setTint(0xffffff);
             this.tweens.add({ targets: cs.sprite, scale: { from: 1.3, to: 1.2 }, duration: 300, yoyo: true });
 
-            // 结算
+            // 结算（含品质评级）
             this.completePayment(cs, order);
 
             // 猫回岗位
@@ -254,25 +263,56 @@ export class GameScene extends Phaser.Scene {
     if (cs) this.completePayment(cs, order);
   }
 
-  // ─── 结算 ───
+  // ─── 结算（含品质评级）───
 
   private completePayment(cs: CustomerSprite, order: Order): void {
     cs.data.state = 'served';
+
     const recipe = DEFAULT_RECIPES.find(r => r.name === order.recipeId);
-    const basePrice = recipe?.basePrice ?? 20;
+    if (!recipe) return;
+
+    // 计算品质评级
+    const quality = calcQuality({
+      recipe,
+      patienceRatio: cs.data.patience / cs.data.maxPatience,
+      hasBarCat: this.gm.state.cats.some(c => c.area === 'bar'),
+      equipmentLevel: this.gm.equipmentLevel,
+    });
+
+    // 检查完美状态
+    const perfect = this.gm.submitStars(quality.stars);
+
+    // 金币结算（售价 × 星级倍率）
     let tipMult = 1;
     for (const cat of this.gm.state.cats.filter(c => c.area === 'cashier')) {
       for (const sk of cat.skills) {
-        if (sk.area === 'cashier' && sk.level > 0) tipMult += sk.effectValue;
+        if (sk.area === 'cashier' && sk.level > 0) tipMult += sk.effectValue * this.gm.skillBoost;
       }
     }
-    const total = Math.floor(basePrice * tipMult) + Phaser.Math.Between(0, Math.floor(basePrice * 0.3));
+    const total = Math.floor(recipe.basePrice * quality.priceMultiplier * tipMult)
+      + Phaser.Math.Between(0, Math.floor(recipe.basePrice * 0.3));
     this.gm.gold += total;
 
-    const float = this.add.text(cs.sprite.x, cs.sprite.y - 60, `+🪙${total}`, {
-      fontSize: '14px', color: '#ffd700', fontFamily: FONTS.TEXT, fontStyle: 'bold',
-    }).setOrigin(0.5);
-    this.tweens.add({ targets: float, y: float.y - 30, alpha: 0, duration: 1000, onComplete: () => float.destroy() });
+    // 星星动画
+    this.starDisplay.show(cs.sprite.x, cs.sprite.y - 60, quality.stars);
+
+    // 金币飘字（加注星级）
+    const infoStr = `+🪙${total}  ${starsText(quality.stars)}`;
+    const float = this.add.text(cs.sprite.x, cs.sprite.y - 80, infoStr, {
+      fontSize: '13px', color: '#ffd700', fontFamily: FONTS.TEXT, fontStyle: 'bold',
+      align: 'center',
+    }).setOrigin(0.5).setDepth(200);
+    this.tweens.add({ targets: float, y: float.y - 30, alpha: 0, duration: 1200, onComplete: () => float.destroy() });
+
+    // 完美状态通知
+    if (perfect) {
+      const msg = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 - 80, '🔥 完美状态！技能效果 +30% (10s)', {
+        fontSize: '14px', color: '#ff4444', fontFamily: FONTS.TEXT, fontStyle: 'bold',
+        backgroundColor: '#000000bb', padding: { x: 12, y: 6 },
+      }).setOrigin(0.5).setDepth(250);
+      this.tweens.add({ targets: msg, alpha: 0, duration: 1500, delay: 2000, onComplete: () => msg.destroy() });
+    }
+
     this.syncUI();
     this.time.delayedCall(600, () => this.customerManager.customerLeave(cs, 'happy'));
   }

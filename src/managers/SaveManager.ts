@@ -14,12 +14,13 @@ export interface SaveData {
   unlockedRecipes: string[];
   unlockedAreas: string[];
   equipment: Record<string, number>;
+  perfectStreak: number;  // 连续 5 星出杯次数
   lastSaved: number;
 }
 
 export function createDefaultSave(): SaveData {
   return {
-    version: 1,
+    version: 2,
     gold: 500,
     reputation: 0,
     day: 1,
@@ -27,6 +28,7 @@ export function createDefaultSave(): SaveData {
     unlockedRecipes: DEFAULT_RECIPES.filter(r => r.unlocked).map(r => r.id),
     unlockedAreas: ['hall', 'bar'],
     equipment: { coffee_machine: 1, grinder: 1, fridge: 1 },
+    perfectStreak: 0,
     lastSaved: Date.now(),
   };
 }
